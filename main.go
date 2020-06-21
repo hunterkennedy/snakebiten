@@ -1,20 +1,30 @@
+// TODO:
+// - fix level font
+// - add main menu and score presentation
+// - Add portals, walls
+// - Add multiple apples
+
 package main
 
 import (
 	"image/color"
 	"log"
+	"math/rand"
 	"strconv"
+	"time"
 
+	"github.com/golang/freetype/truetype"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
+	"github.com/hajimehoshi/ebiten/examples/resources/fonts"
+	"github.com/hajimehoshi/ebiten/text"
+	"golang.org/x/image/font"
 )
 
 type Game struct{}
-type Coord struct {
-	x int
-	y int
-}
+
 type Orientation int
+
 const (
 	North Orientation = 0
 	South Orientation = 1
@@ -23,38 +33,107 @@ const (
 )
 
 const (
-	screenX = 720
-	screenY = 480
+	screenX  = 720
+	screenY  = 480
 	tileSize = 20.0
 )
+
 var (
-	moveEvery = 30
-	counter = 0
-	score = 0
-	level = 1
+	moveEvery            = 15
+	frameCounter         = 0
+	flashFreq            = 5
+	totalFlashes         = 60 / flashFreq
+	score                = 999
+	level                = 1
+	snakeLen             = 1
+	hasCollided          = false
+	snakeVisible         = true
 	maxXTiles, maxYTiles int
-	board [][]int
-	appleX, appleY int
-	snakeCoords []Coord
-	snakeOrientation Orientation = East
-	snakeLen = 1
+	board                [][]int
+	appleCoord           Coord
+	snakeCoords          DoublyLinkedList
+	snakeOrientation     Orientation = East
+	smallFont            font.Face
+	bigFont              font.Face
 )
 
 // Called before the program started
 func init() {
-	maxXTiles = (screenX - 2 * tileSize) / tileSize
-	maxYTiles = (screenY - 2 * tileSize) / tileSize
-	snakeCoords = append(snakeCoords, Coord{maxXTiles/2, maxYTiles/2})
+	maxXTiles = (screenX - 2*tileSize) / tileSize
+	maxYTiles = (screenY - 3*tileSize) / tileSize
+	snakeCoords.PushFront(Coord{4, 4})
+	rand.Seed(time.Now().UnixNano())
+	tt, err := truetype.Parse(fonts.ArcadeN_ttf)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	const dpi = 72
+	smallFont = truetype.NewFace(tt, &truetype.Options{
+		Size:    tileSize - 2,
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	bigFont = truetype.NewFace(tt, &truetype.Options{
+		Size:    tileSize * 2,
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
 }
 
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update(screen *ebiten.Image) error {
-	counter++
-	handleInput()
-	if (counter == moveEvery) {
-		moveSnake(headOnApple())
-		counter = 0
+	frameCounter++
+	if !hasCollided {
+		handleInput()
+		if frameCounter == moveEvery {
+			onApple := headOnApple()
+			if onApple {
+				appleCoord = Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
+				for !validApplePos() {
+					appleCoord = Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
+				}
+				score++
+			}
+			moveSnake(onApple)
+			hasCollided = headCollision()
+			frameCounter = 0
+		}
+	} else if totalFlashes > 0 {
+		// Handle flashing
+		if frameCounter%flashFreq == 0 {
+			totalFlashes--
+			if snakeVisible == true {
+				snakeVisible = false
+			} else {
+				snakeVisible = true
+			}
+		}
+		if totalFlashes == 0 {
+			snakeVisible = true
+		}
+	} else if !snakeCoords.Front().IsNilCoord() {
+		if frameCounter%flashFreq == 0 {
+			if snakeVisible == true {
+				snakeVisible = false
+				snakeCoords.PopFront()
+			} else {
+				snakeVisible = true
+			}
+		}
+		if frameCounter%(2*flashFreq) == 0 {
+
+		}
+	} else {
+		// Restart game
+		snakeCoords.PushFront(Coord{4, 4})
+		score = 0
+		level = 1
+		snakeVisible = true
+		hasCollided = false
+		totalFlashes = 60 / flashFreq
+		frameCounter = 0
 	}
 	return nil
 }
@@ -62,13 +141,15 @@ func (g *Game) Update(screen *ebiten.Image) error {
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
-	ebitenutil.DebugPrintAt(screen, "Score: " + strconv.Itoa(score),
-		screenX - 4 * tileSize, screenY - tileSize)
-	ebitenutil.DebugPrintAt(screen, "Level: " + strconv.Itoa(level),
-		tileSize, screenY - tileSize)
-	//drawBoard(screen)
-	// drawApple()
-	drawSnake(screen)
+	drawBoard(screen)
+	drawApple(screen)
+	if snakeVisible {
+		drawSnake(screen)
+	}
+	text.Draw(screen, "Score:"+strconv.Itoa(score), smallFont,
+		screenX-10*tileSize, screenY-(0.5*tileSize), color.White)
+	ebitenutil.DebugPrintAt(screen, "Level:"+strconv.Itoa(level),
+		tileSize, screenY-tileSize)
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
@@ -79,24 +160,27 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeigh
 
 // Converts a standard coordinate pair to the coordinating tile-size screen coordinate
 func coordToPixel(c Coord) (x float64, y float64) {
-	newX := tileSize + float64(c.x) * tileSize
-	newY := tileSize + float64(c.y) * tileSize
+	newX := tileSize + float64(c.x)*tileSize
+	newY := tileSize + float64(c.y)*tileSize
 	return newX, newY
 }
 
 func drawBoard(screen *ebiten.Image) {
 	// Draw the max size board given screenX, screenY, and tileSize
-	ebitenutil.DrawRect(screen, 0, 0, screenX, screenY, color.White)
-	ebitenutil.DrawRect(screen, tileSize, tileSize, screenX-(2*tileSize), 
-		screenY-(2*tileSize), color.Black)
+	// Outer border
+	ebitenutil.DrawRect(screen, 0, 0, screenX, screenY, color.NRGBA{30, 90, 150, 255})
+	ebitenutil.DrawRect(screen, tileSize, tileSize, screenX-(2*tileSize),
+		screenY-(3*tileSize), color.Black)
 }
 
 func drawSnake(screen *ebiten.Image) {
-	for _, xy := range snakeCoords {
-		x, y:= coordToPixel(xy)
-		ebitenutil.DrawRect(screen, x+2, y+2, tileSize-2, tileSize-2, color.White)
+	iter := snakeCoords.GetIterator()
+	for iter.Next() {
+		x, y := coordToPixel(iter.Get())
+		ebitenutil.DrawRect(screen, x+1, y+1,
+			tileSize-2, tileSize-2, color.White)
 	}
-	
+
 }
 
 func handleInput() {
@@ -119,8 +203,8 @@ func handleInput() {
 }
 
 func moveSnake(onApple bool) {
-	
-	curCoord := snakeCoords[0]
+
+	curCoord := snakeCoords.Front()
 	if snakeOrientation == North {
 		curCoord.y -= 1
 	}
@@ -133,22 +217,55 @@ func moveSnake(onApple bool) {
 	if snakeOrientation == East {
 		curCoord.x += 1
 	}
-	snakeCoords = append(snakeCoords, Coord{})
-	copy(snakeCoords[1:], snakeCoords[0:])
-	snakeCoords[0] = curCoord
+	snakeCoords.PushFront(curCoord)
+	// Remove the last item if we are not on an apple
 	if !onApple {
-		snakeCoords = snakeCoords[:snakeLen]
+		snakeCoords.PopBack()
 	} else {
 		snakeLen++
 	}
-	
+
 }
 
 func headOnApple() bool {
-	if snakeCoords[0].x == appleX && snakeCoords[0].y == appleY {
+	if Equals(appleCoord, snakeCoords.Front()) {
 		return true
 	}
 	return false
+}
+
+func drawApple(screen *ebiten.Image) {
+	x, y := coordToPixel(appleCoord)
+	ebitenutil.DrawRect(screen, x+1, y+1, tileSize-2, tileSize-2, color.NRGBA{255, 0, 0, 255})
+}
+
+// Checks if the head is colliding with the wall OR another component of the snake
+func headCollision() bool {
+	head := snakeCoords.Front()
+	// Check if out of bounds
+	if head.x >= maxXTiles || head.y >= maxYTiles || head.x < 0 || head.y < 0 {
+		return true
+	}
+	iter := snakeCoords.GetIterator()
+	// Bypass the head
+	iter.Next()
+	for iter.Next() {
+		if Equals(iter.Get(), head) {
+			return true
+		}
+	}
+	return false
+}
+
+// Checks if the apple coord is inside of the snake
+func validApplePos() bool {
+	iter := snakeCoords.GetIterator()
+	for iter.Next() {
+		if Equals(appleCoord, iter.Get()) {
+			return false
+		}
+	}
+	return true
 }
 
 func main() {
