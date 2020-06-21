@@ -1,6 +1,5 @@
 // TODO:
-// - fix level font
-// - add main menu and score presentation
+// - Fix late collisions
 // - Add portals, walls
 // - Add multiple apples
 
@@ -33,9 +32,11 @@ const (
 )
 
 const (
-	screenX  = 720
-	screenY  = 480
-	tileSize = 24.0
+	screenX     = 720
+	screenY     = 480
+	tileSize    = 24.0
+	titleString = "Snakebiten"
+	playMsg     = "Press spacebar to start!"
 )
 
 var (
@@ -55,15 +56,18 @@ var (
 	snakeOrientation     = East
 	smallFont            font.Face
 	bigFont              font.Face
-	showMenu             = false
+	showMenu             = true
+	nextSnakeOrientation = East
 )
 
 // Called before the program started
 func init() {
+	rand.Seed(time.Now().UnixNano())
 	maxXTiles = (screenX - 2*tileSize) / tileSize
 	maxYTiles = (screenY - 3*tileSize) / tileSize
-	snakeCoords.PushFront(Coord{4, 4})
-	rand.Seed(time.Now().UnixNano())
+	snakeCoords.PushFront(Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)})
+	appleCoord = snakeCoords.Front() // Makes the apple spawn on the head so we
+	// begin with len2 snake
 	tt, err := truetype.Parse(fonts.ArcadeN_ttf)
 	if err != nil {
 		log.Fatal(err)
@@ -86,7 +90,10 @@ func init() {
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update(screen *ebiten.Image) error {
 	if showMenu && ebiten.IsKeyPressed(ebiten.KeySpace) {
-		// TODO: Show menu and flash "Press space to start!"
+		showMenu = false
+	}
+	if showMenu {
+		return nil
 	}
 	frameCounter++
 	if !hasCollided {
@@ -128,7 +135,8 @@ func (g *Game) Update(screen *ebiten.Image) error {
 		}
 	} else {
 		// Restart game
-		snakeCoords.PushFront(Coord{4, 4})
+		snakeCoords.PushFront(Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)})
+		appleCoord = snakeCoords.Front()
 		score = 0
 		level = 1
 		snakeVisible = true
@@ -139,18 +147,31 @@ func (g *Game) Update(screen *ebiten.Image) error {
 	return nil
 }
 
+// Gets the length of the string with the given font face
+func textLen(text string, fontSize int) int {
+	return len(text) * fontSize
+}
+
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
 	drawBoard(screen)
-	drawApple(screen)
-	if snakeVisible {
-		drawSnake(screen)
+	if !showMenu {
+		drawApple(screen)
+		if snakeVisible {
+			drawSnake(screen)
+		}
+		text.Draw(screen, "Score:"+strconv.Itoa(score), smallFont,
+			screenX-10*tileSize, screenY-(0.5*tileSize), color.White)
+		text.Draw(screen, "Level:"+strconv.Itoa(level), smallFont,
+			tileSize, screenY-(0.5*tileSize), color.White)
+
+	} else {
+		text.Draw(screen, titleString, bigFont,
+			(screenX/2)-(textLen(titleString, tileSize*2)/2), (screenY-3*tileSize)/2, color.White)
+		text.Draw(screen, playMsg, smallFont,
+			(screenX/2)-(textLen(playMsg, tileSize-2)/2), (screenY)/2, color.White)
 	}
-	text.Draw(screen, "Score:"+strconv.Itoa(score), smallFont,
-		screenX-10*tileSize, screenY-(0.5*tileSize), color.White)
-	text.Draw(screen, "Level:"+strconv.Itoa(level), smallFont,
-		tileSize, screenY-(0.5*tileSize), color.White)
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
@@ -189,22 +210,22 @@ func handleInput() {
 	a := ebiten.IsKeyPressed(ebiten.KeyA)
 	s := ebiten.IsKeyPressed(ebiten.KeyS)
 	d := ebiten.IsKeyPressed(ebiten.KeyD)
-	if w {
-		snakeOrientation = North
+	if w && snakeOrientation != South {
+		nextSnakeOrientation = North
 	}
-	if a {
-		snakeOrientation = West
+	if a && snakeOrientation != East {
+		nextSnakeOrientation = West
 	}
-	if s {
-		snakeOrientation = South
+	if s && snakeOrientation != North {
+		nextSnakeOrientation = South
 	}
-	if d {
-		snakeOrientation = East
+	if d && snakeOrientation != West {
+		nextSnakeOrientation = East
 	}
 }
 
 func moveSnake(onApple bool) {
-
+	snakeOrientation = nextSnakeOrientation
 	curCoord := snakeCoords.Front()
 	if snakeOrientation == North {
 		curCoord.y -= 1
