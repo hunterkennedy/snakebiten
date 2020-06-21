@@ -35,7 +35,7 @@ const (
 const (
 	screenX  = 720
 	screenY  = 480
-	tileSize = 20.0
+	tileSize = 24.0
 )
 
 var (
@@ -43,7 +43,7 @@ var (
 	frameCounter         = 0
 	flashFreq            = 5
 	totalFlashes         = 60 / flashFreq
-	score                = 999
+	score                = 0
 	level                = 1
 	snakeLen             = 1
 	hasCollided          = false
@@ -52,9 +52,10 @@ var (
 	board                [][]int
 	appleCoord           Coord
 	snakeCoords          DoublyLinkedList
-	snakeOrientation     Orientation = East
+	snakeOrientation     = East
 	smallFont            font.Face
 	bigFont              font.Face
+	showMenu             = false
 )
 
 // Called before the program started
@@ -84,6 +85,9 @@ func init() {
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update(screen *ebiten.Image) error {
+	if showMenu && ebiten.IsKeyPressed(ebiten.KeySpace) {
+		// TODO: Show menu and flash "Press space to start!"
+	}
 	frameCounter++
 	if !hasCollided {
 		handleInput()
@@ -122,9 +126,6 @@ func (g *Game) Update(screen *ebiten.Image) error {
 				snakeVisible = true
 			}
 		}
-		if frameCounter%(2*flashFreq) == 0 {
-
-		}
 	} else {
 		// Restart game
 		snakeCoords.PushFront(Coord{4, 4})
@@ -148,8 +149,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	text.Draw(screen, "Score:"+strconv.Itoa(score), smallFont,
 		screenX-10*tileSize, screenY-(0.5*tileSize), color.White)
-	ebitenutil.DebugPrintAt(screen, "Level:"+strconv.Itoa(level),
-		tileSize, screenY-tileSize)
+	text.Draw(screen, "Level:"+strconv.Itoa(level), smallFont,
+		tileSize, screenY-(0.5*tileSize), color.White)
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
