@@ -1,8 +1,3 @@
-// TODO:
-// - Fix late collisions
-// - Add portals, walls
-// - Add multiple apples
-
 package main
 
 import (
@@ -37,16 +32,17 @@ const (
 	tileSize    = 24.0
 	titleString = "Snakebiten"
 	playMsg     = "Press spacebar to start!"
+	controls    = "Use WASD to change direction"
 )
 
 var (
-	moveEvery            = 15
-	frameCounter         = 0
-	flashFreq            = 5
-	totalFlashes         = 60 / flashFreq
-	score                = 0
-	level                = 1
-	snakeLen             = 1
+	highScore    = 0
+	moveEvery    = 20
+	frameCounter = 0
+	flashFreq    = 3
+	totalFlashes = 60 / flashFreq
+	score        = 0
+	// level                = 1
 	hasCollided          = false
 	snakeVisible         = true
 	maxXTiles, maxYTiles int
@@ -56,8 +52,11 @@ var (
 	snakeOrientation     = East
 	smallFont            font.Face
 	bigFont              font.Face
-	showMenu             = true
+	showMenu             = true // Is menu on the screen?
 	nextSnakeOrientation = East
+	menuVisible          = true // Is the hlper text visible? (For flashing)
+	// levelString          = "Level:" + strconv.Itoa(level)
+	maxScore int
 )
 
 // Called before the program started
@@ -65,7 +64,10 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 	maxXTiles = (screenX - 2*tileSize) / tileSize
 	maxYTiles = (screenY - 3*tileSize) / tileSize
-	snakeCoords.PushFront(Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)})
+	maxScore = maxXTiles * maxYTiles
+	c, d := genSnakeCoordDir()
+	snakeCoords.PushFront(c)
+	nextSnakeOrientation = d
 	appleCoord = snakeCoords.Front() // Makes the apple spawn on the head so we
 	// begin with len2 snake
 	tt, err := truetype.Parse(fonts.ArcadeN_ttf)
@@ -89,17 +91,28 @@ func init() {
 // Update proceeds the game state.
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update(screen *ebiten.Image) error {
+	frameCounter++
 	if showMenu && ebiten.IsKeyPressed(ebiten.KeySpace) {
 		showMenu = false
+		snakeVisible = true
+		menuVisible = false
+		frameCounter = 0
 	}
 	if showMenu {
+		if frameCounter%(8*flashFreq) == 0 {
+			if menuVisible {
+				menuVisible = false
+			} else {
+				menuVisible = true
+			}
+		}
 		return nil
 	}
-	frameCounter++
 	if !hasCollided {
 		handleInput()
 		if frameCounter == moveEvery {
 			onApple := headOnApple()
+			// onApple = ebiten.IsKeyPressed(ebiten.KeyF)
 			if onApple {
 				appleCoord = Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
 				for !validApplePos() {
@@ -107,8 +120,16 @@ func (g *Game) Update(screen *ebiten.Image) error {
 				}
 				score++
 			}
-			moveSnake(onApple)
-			hasCollided = headCollision()
+			next := getNextSnakePosition()
+			if coordCollides(next) {
+				hasCollided = true
+			} else {
+				snakeCoords.PushFront(next)
+				// Remove the last item if we are not on an apple
+				if !onApple {
+					snakeCoords.PopBack()
+				}
+			}
 			frameCounter = 0
 		}
 	} else if totalFlashes > 0 {
@@ -135,14 +156,19 @@ func (g *Game) Update(screen *ebiten.Image) error {
 		}
 	} else {
 		// Restart game
-		snakeCoords.PushFront(Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)})
+		c, d := genSnakeCoordDir()
+		snakeCoords.PushFront(c)
+		nextSnakeOrientation = d
 		appleCoord = snakeCoords.Front()
+		highScore = score
 		score = 0
-		level = 1
+		// level = 1
 		snakeVisible = true
 		hasCollided = false
 		totalFlashes = 60 / flashFreq
 		frameCounter = 0
+		showMenu = true
+		menuVisible = true
 	}
 	return nil
 }
@@ -150,6 +176,28 @@ func (g *Game) Update(screen *ebiten.Image) error {
 // Gets the length of the string with the given font face
 func textLen(text string, fontSize int) int {
 	return len(text) * fontSize
+}
+
+func genSnakeCoordDir() (Coord, Orientation) {
+	d := West
+	c := Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
+	if c.x < maxXTiles/2 {
+		d = East
+	}
+	return c, d
+}
+
+func dirToString(o Orientation) string {
+	switch o {
+	case North:
+		return "UP"
+	case East:
+		return "RIGHT"
+	case South:
+		return "DOWN"
+	default:
+		return "LEFT"
+	}
 }
 
 // Draw draws the game screen.
@@ -161,22 +209,52 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if snakeVisible {
 			drawSnake(screen)
 		}
-		text.Draw(screen, "Score:"+strconv.Itoa(score), smallFont,
-			screenX-10*tileSize, screenY-(0.5*tileSize), color.White)
-		text.Draw(screen, "Level:"+strconv.Itoa(level), smallFont,
-			tileSize, screenY-(0.5*tileSize), color.White)
-
+		scoreString := "Score:" + strconv.Itoa(score)
+		scoreXOffset := screenX - (tileSize + textLen(scoreString, tileSize-2))
+		text.Draw(screen, scoreString, smallFont,
+			scoreXOffset,
+			screenY-(0.5*tileSize), color.White)
+		// text.Draw(screen, levelString, smallFont,
+		// 	scoreXOffset-(2*tileSize+textLen(levelString, tileSize-2)),
+		// 	screenY-(0.5*tileSize), color.White)
+		orientation := dirToString(nextSnakeOrientation)
+		text.Draw(screen, orientation, smallFont,
+			tileSize,
+			screenY-(tileSize*0.5), color.White)
 	} else {
 		text.Draw(screen, titleString, bigFont,
 			(screenX/2)-(textLen(titleString, tileSize*2)/2), (screenY-3*tileSize)/2, color.White)
-		text.Draw(screen, playMsg, smallFont,
-			(screenX/2)-(textLen(playMsg, tileSize-2)/2), (screenY)/2, color.White)
+		if menuVisible {
+			text.Draw(screen, playMsg, smallFont,
+				(screenX/2)-(textLen(playMsg, tileSize-2)/2), screenY/2, color.White)
+		}
+		if highScore != 0 {
+			highScoreString := "High-Score: " + strconv.Itoa(highScore)
+			text.Draw(screen, highScoreString, smallFont,
+				(screenX/2)-(textLen(highScoreString, tileSize-2)/2),
+				(screenY/2)+3*tileSize, color.White)
+		} else {
+			text.Draw(screen, controls, smallFont,
+				(screenX/2)-(textLen(controls, tileSize-2)/2),
+				(screenY/2)+4*tileSize, color.White)
+		}
+		if highScore >= maxScore {
+			congrats := "Congratulations!"
+			beat := "You beat the game!"
+			text.Draw(screen, congrats, smallFont,
+				(screenX/2)-(textLen(congrats, tileSize-2)/2),
+				(screenY/2)+5*tileSize, color.White)
+			text.Draw(screen, beat, smallFont,
+				(screenX/2)-(textLen(beat, tileSize-2)/2),
+				(screenY/2)+6*tileSize, color.White)
+		}
 	}
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
 // If you don't have to adjust the screen size with the outside size, just return a fixed size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
+	// Const for now
 	return screenX, screenY
 }
 
@@ -191,18 +269,28 @@ func drawBoard(screen *ebiten.Image) {
 	// Draw the max size board given screenX, screenY, and tileSize
 	// Outer border
 	ebitenutil.DrawRect(screen, 0, 0, screenX, screenY, color.NRGBA{30, 90, 150, 255})
+	// Inner board
 	ebitenutil.DrawRect(screen, tileSize, tileSize, screenX-(2*tileSize),
 		screenY-(3*tileSize), color.Black)
 }
 
+func getColor(i int) uint8 {
+	ret := i
+	if ret > 255 {
+		return uint8(255)
+	}
+	return uint8(ret)
+}
+
 func drawSnake(screen *ebiten.Image) {
 	iter := snakeCoords.GetIterator()
+	i := 0
 	for iter.Next() {
 		x, y := coordToPixel(iter.Get())
 		ebitenutil.DrawRect(screen, x+1, y+1,
-			tileSize-2, tileSize-2, color.White)
+			tileSize-2, tileSize-2, color.NRGBA{getColor(i * 5), 255, getColor(i * 5), 255})
+		i++
 	}
-
 }
 
 func handleInput() {
@@ -224,7 +312,7 @@ func handleInput() {
 	}
 }
 
-func moveSnake(onApple bool) {
+func getNextSnakePosition() Coord {
 	snakeOrientation = nextSnakeOrientation
 	curCoord := snakeCoords.Front()
 	if snakeOrientation == North {
@@ -239,14 +327,7 @@ func moveSnake(onApple bool) {
 	if snakeOrientation == East {
 		curCoord.x += 1
 	}
-	snakeCoords.PushFront(curCoord)
-	// Remove the last item if we are not on an apple
-	if !onApple {
-		snakeCoords.PopBack()
-	} else {
-		snakeLen++
-	}
-
+	return curCoord
 }
 
 func headOnApple() bool {
@@ -258,21 +339,22 @@ func headOnApple() bool {
 
 func drawApple(screen *ebiten.Image) {
 	x, y := coordToPixel(appleCoord)
-	ebitenutil.DrawRect(screen, x+1, y+1, tileSize-2, tileSize-2, color.NRGBA{255, 0, 0, 255})
+	ebitenutil.DrawRect(screen, x+1, y+1, tileSize-2, tileSize-2,
+		color.NRGBA{255, 0, 0, 255})
 }
 
-// Checks if the head is colliding with the wall OR another component of the snake
-func headCollision() bool {
-	head := snakeCoords.Front()
+// Checks if c is colliding with the wall OR another component of the snake
+func coordCollides(c Coord) bool {
+	// head := snakeCoords.Front()
 	// Check if out of bounds
-	if head.x >= maxXTiles || head.y >= maxYTiles || head.x < 0 || head.y < 0 {
+	if c.x >= maxXTiles || c.y >= maxYTiles || c.x < 0 || c.y < 0 {
 		return true
 	}
 	iter := snakeCoords.GetIterator()
 	// Bypass the head
 	iter.Next()
 	for iter.Next() {
-		if Equals(iter.Get(), head) {
+		if Equals(iter.Get(), c) {
 			return true
 		}
 	}

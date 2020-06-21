@@ -16,3 +16,6 @@
 
 # Other
 *.old
+
+# Allow binaries to be tracked
+!bin/*
