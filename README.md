@@ -1,2 +1,2 @@
 # snakebiten
-Snake clone made in Ebiten
+Snake clone made in Ebiten!

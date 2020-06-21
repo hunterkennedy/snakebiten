@@ -36,13 +36,12 @@ const (
 )
 
 var (
-	highScore    = 0
-	moveEvery    = 20
-	frameCounter = 0
-	flashFreq    = 3
-	totalFlashes = 60 / flashFreq
-	score        = 0
-	// level                = 1
+	highScore            = 0
+	moveEvery            = 20
+	frameCounter         = 0
+	flashFreq            = 3
+	totalFlashes         = 60 / flashFreq
+	score                = 0
 	hasCollided          = false
 	snakeVisible         = true
 	maxXTiles, maxYTiles int
@@ -54,12 +53,11 @@ var (
 	bigFont              font.Face
 	showMenu             = true // Is menu on the screen?
 	nextSnakeOrientation = East
-	menuVisible          = true // Is the hlper text visible? (For flashing)
-	// levelString          = "Level:" + strconv.Itoa(level)
-	maxScore int
+	promptVisible        = true // Is the hlper text visible? (For flashing)
+	maxScore             int
 )
 
-// Called before the program started
+// Called before the program starts; set up initial variables
 func init() {
 	rand.Seed(time.Now().UnixNano())
 	maxXTiles = (screenX - 2*tileSize) / tileSize
@@ -92,48 +90,58 @@ func init() {
 // Update is called every tick (1/60 [s] by default).
 func (g *Game) Update(screen *ebiten.Image) error {
 	frameCounter++
+	// Logic to hide menu and start the game
 	if showMenu && ebiten.IsKeyPressed(ebiten.KeySpace) {
 		showMenu = false
 		snakeVisible = true
-		menuVisible = false
+		promptVisible = false
 		frameCounter = 0
 	}
+	// Logic for flashing the "press space to play" prompt
 	if showMenu {
 		if frameCounter%(8*flashFreq) == 0 {
-			if menuVisible {
-				menuVisible = false
+			if promptVisible {
+				promptVisible = false
 			} else {
-				menuVisible = true
+				promptVisible = true
 			}
 		}
+		// If the menu is shown don't do any game logic
 		return nil
 	}
+	// Primary game logic
 	if !hasCollided {
+		// Get input and enqueue the next move
 		handleInput()
 		if frameCounter == moveEvery {
 			onApple := headOnApple()
-			// onApple = ebiten.IsKeyPressed(ebiten.KeyF)
 			if onApple {
+				// Need to generate a valid apple position
 				appleCoord = Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
 				for !validApplePos() {
 					appleCoord = Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
 				}
+				// Hit an apple so increment the score
 				score++
 			}
 			next := getNextSnakePosition()
 			if coordCollides(next) {
+				// Collided!
 				hasCollided = true
 			} else {
+				// Move the snake to the next position
 				snakeCoords.PushFront(next)
 				// Remove the last item if we are not on an apple
 				if !onApple {
 					snakeCoords.PopBack()
 				}
 			}
+			// Reset frame counter, just to keep this number small
 			frameCounter = 0
 		}
 	} else if totalFlashes > 0 {
-		// Handle flashing
+		// We know we have collided, and that we still need to flash before
+		// dismantling the snake
 		if frameCounter%flashFreq == 0 {
 			totalFlashes--
 			if snakeVisible == true {
@@ -146,6 +154,7 @@ func (g *Game) Update(screen *ebiten.Image) error {
 			snakeVisible = true
 		}
 	} else if !snakeCoords.Front().IsNilCoord() {
+		// Handles dismantling of the snake
 		if frameCounter%flashFreq == 0 {
 			if snakeVisible == true {
 				snakeVisible = false
@@ -155,29 +164,32 @@ func (g *Game) Update(screen *ebiten.Image) error {
 			}
 		}
 	} else {
-		// Restart game
+		// Restart game, reset running vars
 		c, d := genSnakeCoordDir()
 		snakeCoords.PushFront(c)
 		nextSnakeOrientation = d
 		appleCoord = snakeCoords.Front()
 		highScore = score
 		score = 0
-		// level = 1
 		snakeVisible = true
 		hasCollided = false
 		totalFlashes = 60 / flashFreq
 		frameCounter = 0
 		showMenu = true
-		menuVisible = true
+		promptVisible = true
 	}
 	return nil
 }
 
-// Gets the length of the string with the given font face
+// Gets the length of the string with the given font face size
+// I don't understand the ebiten implementation of this function so I
+// wrote my own
 func textLen(text string, fontSize int) int {
 	return len(text) * fontSize
 }
 
+// Generates a random starting position and direction for the snake
+// This avoid the issue of being spawned against and facing a wall
 func genSnakeCoordDir() (Coord, Orientation) {
 	d := West
 	c := Coord{rand.Intn(maxXTiles), rand.Intn(maxYTiles)}
@@ -187,6 +199,8 @@ func genSnakeCoordDir() (Coord, Orientation) {
 	return c, d
 }
 
+// Converts a diretion to a string for the status message
+// First place I realized I could use a switch
 func dirToString(o Orientation) string {
 	switch o {
 	case North:
@@ -203,10 +217,13 @@ func dirToString(o Orientation) string {
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60[s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
+	// Draw the board and outline
 	drawBoard(screen)
 	if !showMenu {
+		// Game is running, perform usual actions:
 		drawApple(screen)
 		if snakeVisible {
+			// Must do this check for when the snake flashes
 			drawSnake(screen)
 		}
 		scoreString := "Score:" + strconv.Itoa(score)
@@ -214,31 +231,36 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, scoreString, smallFont,
 			scoreXOffset,
 			screenY-(0.5*tileSize), color.White)
+		// Leaving this in in case I decide to implement proper levels,
+		// portals, etc.
 		// text.Draw(screen, levelString, smallFont,
 		// 	scoreXOffset-(2*tileSize+textLen(levelString, tileSize-2)),
 		// 	screenY-(0.5*tileSize), color.White)
-		orientation := dirToString(nextSnakeOrientation)
-		text.Draw(screen, orientation, smallFont,
+		text.Draw(screen, dirToString(nextSnakeOrientation), smallFont,
 			tileSize,
 			screenY-(tileSize*0.5), color.White)
 	} else {
+		// Show the menu, title, prompt, etcc
 		text.Draw(screen, titleString, bigFont,
 			(screenX/2)-(textLen(titleString, tileSize*2)/2), (screenY-3*tileSize)/2, color.White)
-		if menuVisible {
+		if promptVisible {
 			text.Draw(screen, playMsg, smallFont,
 				(screenX/2)-(textLen(playMsg, tileSize-2)/2), screenY/2, color.White)
 		}
 		if highScore != 0 {
+			// Show the high score if we have a high score recorded
 			highScoreString := "High-Score: " + strconv.Itoa(highScore)
 			text.Draw(screen, highScoreString, smallFont,
 				(screenX/2)-(textLen(highScoreString, tileSize-2)/2),
 				(screenY/2)+3*tileSize, color.White)
 		} else {
+			// Show the controls iff they have not played yet
 			text.Draw(screen, controls, smallFont,
 				(screenX/2)-(textLen(controls, tileSize-2)/2),
 				(screenY/2)+4*tileSize, color.White)
 		}
 		if highScore >= maxScore {
+			// Probably a little underwhelming for beating a game of snake
 			congrats := "Congratulations!"
 			beat := "You beat the game!"
 			text.Draw(screen, congrats, smallFont,
@@ -252,19 +274,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 // Layout takes the outside size (e.g., the window size) and returns the (logical) screen size.
-// If you don't have to adjust the screen size with the outside size, just return a fixed size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	// Const for now
+	// Const for now, makes it easier to work with
 	return screenX, screenY
 }
 
-// Converts a standard coordinate pair to the coordinating tile-size screen coordinate
+// Converts a standard coordinate pair to the coordinating
+// tile-size screen coordinate
 func coordToPixel(c Coord) (x float64, y float64) {
 	newX := tileSize + float64(c.x)*tileSize
 	newY := tileSize + float64(c.y)*tileSize
 	return newX, newY
 }
 
+// Draws the blue border and black board within
 func drawBoard(screen *ebiten.Image) {
 	// Draw the max size board given screenX, screenY, and tileSize
 	// Outer border
@@ -274,6 +297,7 @@ func drawBoard(screen *ebiten.Image) {
 		screenY-(3*tileSize), color.Black)
 }
 
+// Converts i to a uint8 less than or equal to 255, capped at 255
 func getColor(i int) uint8 {
 	ret := i
 	if ret > 255 {
@@ -282,6 +306,10 @@ func getColor(i int) uint8 {
 	return uint8(ret)
 }
 
+// Draws the snake with a nice gradient, green to white
+// This was intended to make the snake easier to see and
+// easier to distinguish parts of the snake, but probably
+// needs more colors to properly do that
 func drawSnake(screen *ebiten.Image) {
 	iter := snakeCoords.GetIterator()
 	i := 0
@@ -293,6 +321,8 @@ func drawSnake(screen *ebiten.Image) {
 	}
 }
 
+// Intended to be called every frame. Changes the NEXT movement so you can
+// actually change your mind between movement ticks
 func handleInput() {
 	w := ebiten.IsKeyPressed(ebiten.KeyW)
 	a := ebiten.IsKeyPressed(ebiten.KeyA)
@@ -312,6 +342,8 @@ func handleInput() {
 	}
 }
 
+// Gets where the snake will go with the current snake orientation
+// Also sets snakeOrientation
 func getNextSnakePosition() Coord {
 	snakeOrientation = nextSnakeOrientation
 	curCoord := snakeCoords.Front()
@@ -330,6 +362,7 @@ func getNextSnakePosition() Coord {
 	return curCoord
 }
 
+// Just returns if the head is on the same coord as the apple
 func headOnApple() bool {
 	if Equals(appleCoord, snakeCoords.Front()) {
 		return true
@@ -337,6 +370,7 @@ func headOnApple() bool {
 	return false
 }
 
+// Draws the apple in the same way the snake is drawn, but red
 func drawApple(screen *ebiten.Image) {
 	x, y := coordToPixel(appleCoord)
 	ebitenutil.DrawRect(screen, x+1, y+1, tileSize-2, tileSize-2,
@@ -362,6 +396,8 @@ func coordCollides(c Coord) bool {
 }
 
 // Checks if the apple coord is inside of the snake
+// Coords will be generated inside of the bounds so we
+// only need to check if it's in the snake
 func validApplePos() bool {
 	iter := snakeCoords.GetIterator()
 	for iter.Next() {
@@ -372,6 +408,7 @@ func validApplePos() bool {
 	return true
 }
 
+// Running the game!
 func main() {
 	// ebiten.SetMaxTPS(10)
 	game := &Game{}
