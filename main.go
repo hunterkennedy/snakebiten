@@ -15,15 +15,21 @@ import (
 	"golang.org/x/image/font"
 )
 
+// Game defined for Ebiten; No modifications necessary
 type Game struct{}
 
+// Orientation is an enum-ish type for NSEW
 type Orientation int
 
 const (
+	// North = Up
 	North Orientation = 0
+	// South = Down
 	South Orientation = 1
-	East  Orientation = 2
-	West  Orientation = 3
+	// East = Right
+	East Orientation = 2
+	// West = Left
+	West Orientation = 3
 )
 
 const (
@@ -33,19 +39,18 @@ const (
 	titleString = "Snakebiten"
 	playMsg     = "Press spacebar to start!"
 	controls    = "Use WASD to change direction"
+	moveEvery   = 20
+	flashFreq   = 3
 )
 
 var (
 	highScore            = 0
-	moveEvery            = 20
 	frameCounter         = 0
-	flashFreq            = 3
 	totalFlashes         = 60 / flashFreq
 	score                = 0
 	hasCollided          = false
 	snakeVisible         = true
 	maxXTiles, maxYTiles int
-	board                [][]int
 	appleCoord           Coord
 	snakeCoords          DoublyLinkedList
 	snakeOrientation     = East
@@ -348,16 +353,16 @@ func getNextSnakePosition() Coord {
 	snakeOrientation = nextSnakeOrientation
 	curCoord := snakeCoords.Front()
 	if snakeOrientation == North {
-		curCoord.y -= 1
+		curCoord.y--
 	}
 	if snakeOrientation == West {
-		curCoord.x -= 1
+		curCoord.x--
 	}
 	if snakeOrientation == South {
-		curCoord.y += 1
+		curCoord.y++
 	}
 	if snakeOrientation == East {
-		curCoord.x += 1
+		curCoord.x++
 	}
 	return curCoord
 }
