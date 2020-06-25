@@ -1,6 +1,6 @@
 # snakebiten
-## Snake clone made in Ebiten!
-![Gameplay Demo](demo/demo.gif)
+## Snake clone made in Ebiten!  
+![Gameplay Demo](demo/demo.gif)  
 To download a precompiled Windows binary, see the bin folder.
 To run:
 ```bash
